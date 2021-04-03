@@ -1,0 +1,54 @@
+# RFM ANALYSIS
+
+with RFM_analysis_table as(
+SELECT fullVisitorId, 
+    #Max(visitStartTime) as visit_time,
+    count(totals.visits) as total_visit, 
+    round(Sum(totals.timeOnSite),2) as total_time_onSite, 
+    sum(totals.pageviews) as page_views,
+    sum(totals.hits) as total_hits,
+    count(totals.transactions) as transactions,
+    sum(totals.totalTransactionRevenue) as net_revenue
+
+FROM `bigquery-public-data.google_analytics_sample.ga_sessions_20170801`
+where totals.timeOnSite is not NULL
+group by fullVisitorId
+)
+
+select *,
+    avg(page_views) over() as avg_pageViews,
+    avg(total_time_onSite ) over() as avg_time
+from RFM_analysis_table
+where transactions = 1;
+
+
+# K-MEAN 
+
+CREATE OR REPLACE MODEL `swift-reef-308103.m.RFM_model` -- name of the table where to store the model.
+OPTIONS( 
+      model_type='kmeans',  -- model to user
+      num_clusters=5, -- number of clusters to create.
+      standardize_features = true  -- normalize all the data points. usefull for distance based models such as k-means.
+    ) AS
+select * from `swift-reef-308103.m.RFM_Table`
+
+# FINAL RFM
+
+with 
+-- update project and dataset name
+rfm as (select *  from `swift-reef-308103.m.RFM_Table`
+order by net_revenue desc
+)
+
+select 
+case 
+  when CENTROID_ID = 1 then 'Segment 1'
+  when CENTROID_ID = 2 then 'Segment 2'
+  when CENTROID_ID = 3 then 'Segment 3'
+  when CENTROID_ID = 4 then 'Segment 4'
+  when CENTROID_ID = 5 then 'Segment 5'
+end as segments,
+* except (nearest_centroids_distance)
+
+FROM ML.PREDICT(MODEL `swift-reef-308103.m.RFM_model`,
+(select * from rfm))
